@@ -1,10 +1,15 @@
 package com.benoly.android.floatingwindowdemo;
 
+import android.accessibilityservice.AccessibilityService;
+import android.app.ActivityManager;
 import android.app.Service;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.os.CountDownTimer;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.support.annotation.Nullable;
 import android.util.Log;
 import android.view.Gravity;
@@ -25,6 +30,8 @@ public class FloatingWindowService extends Service {
   private static final String TAG = "FloatingWindowSVC_Tag";
 
   private WindowManager windowManager;
+  private ActivityManager activityManager;
+  private PowerManager powerManager;
   private ImageView imgCircle;
 
   @Nullable
@@ -41,6 +48,8 @@ public class FloatingWindowService extends Service {
     Log.d(TAG, "onCreate");
 
     windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+    activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+    powerManager = (PowerManager) getSystemService(POWER_SERVICE);
 
     imgCircle = new ImageView(this);
     imgCircle.setImageResource(R.drawable.circle);
@@ -115,14 +124,64 @@ public class FloatingWindowService extends Service {
   }
 
   /**
+   * 判断当前屏幕是否为主屏
+   *
+   * @return
+   */
+  private boolean isHomeScreem() {
+    //TODO
+    return false;
+  }
+
+  /**
    * 返回主屏
    */
   private void returnHomeScreem() {
-    Intent homeIntent = new Intent(Intent.ACTION_MAIN);
-    homeIntent.addCategory(Intent.CATEGORY_HOME);
-    homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    if (!isHomeScreem()) {
+      Intent homeIntent = new Intent(Intent.ACTION_MAIN);
+      homeIntent.addCategory(Intent.CATEGORY_HOME);
+      homeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-    startActivity(homeIntent);
+      startActivity(homeIntent);
+    }
+  }
+
+  /**
+   * 显示系统当前运行的APP列表(近期任务列表)
+   */
+  private void showRecentAPPs() {
+    //activityManager.getRunningTasks(10);
+
+    Intent intent = new Intent("com.android.systemui.recent.action.TOGGLE_RECENTS");
+    intent.setComponent(new ComponentName("com.android.systemui", "com.android.systemui.recent.RecentsActivity"));
+    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+    startActivity(intent);
+  }
+
+  /**
+   * 锁屏
+   */
+  private void lockScreen() {
+    Log.d(TAG, "lockScream");
+
+    DevicePolicyManager devicePolicyManager = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+    ComponentName componentName = new ComponentName(this, FloatingWindowDeviceAdminReceiver.class);
+
+    if (devicePolicyManager.isAdminActive(componentName)) {
+      devicePolicyManager.lockNow();
+    } else {
+      /**
+       *注意：(Note3下测试)这里无法弹出用户激活权限的系统Activity，所以，权限申请的部分移到了MainActivity启动onCreate中
+       * deleted
+       Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+       intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName);
+       intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "激活后才能使用锁屏功能");
+       intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+       startActivity(intent);
+       */
+    }
   }
 
   /**
@@ -130,6 +189,7 @@ public class FloatingWindowService extends Service {
    */
   private void onClick() {
     Log.d(TAG, "onClick");
+    returnHomeScreem();
   }
 
   /**
@@ -137,6 +197,7 @@ public class FloatingWindowService extends Service {
    */
   private void onDoubleClick() {
     Log.d(TAG, "onDoubleClick");
+    lockScreen();
   }
 
   /**
@@ -144,6 +205,7 @@ public class FloatingWindowService extends Service {
    */
   private void onLongClick() {
     Log.d(TAG, "onLongClick");
+    showRecentAPPs();
   }
 
   private void onTriangleClick() {
@@ -163,6 +225,11 @@ public class FloatingWindowService extends Service {
     @Override
     public void onTick(long millisUntilFinished) {
       Log.d(TAG, "onTick millisUntilFinished is " + millisUntilFinished);
+
+      //单击事件的灵敏度参数
+      if (millisUntilFinished <= 700) {
+        onFinish();
+      }
     }
 
     @Override
@@ -177,7 +244,7 @@ public class FloatingWindowService extends Service {
           //判断是否是长按
           Log.d(TAG, "diff is " + (upEvent.EventTime - downEvent.EventTime));
 
-          if (upEvent.EventTime - downEvent.EventTime <= 300) {
+          if (upEvent.EventTime - downEvent.EventTime <= 500) {
             onClick();
           } else {
             onLongClick();
@@ -219,6 +286,10 @@ public class FloatingWindowService extends Service {
     }
 
     public void fireClickEvent() {
+      if (finished) {
+        return;
+      }
+
       Log.d(TAG, "events size() is " + events.size());
 
       if (events.size() == 2) {
